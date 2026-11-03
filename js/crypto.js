@@ -1,17 +1,17 @@
-// Crypto primitives — all via the browser's native WebCrypto API (no third-party crypto).
+// Browser-side cryptography (WebCrypto only).
 //
-// Design (envelope encryption):
-//   • One random 256-bit Data Encryption Key (DEK) encrypts the whole team vault with AES-GCM.
-//   • Each user gets a Key Encryption Key (KEK) derived from their password with PBKDF2-SHA256.
-//     The DEK is wrapped (encrypted) with each user's KEK. Wrong password => unwrap fails.
-//   • Usernames are never stored in clear outside the vault: the keyring is indexed by a
-//     PBKDF2 hash of the lowercased username + a random per-install salt.
-//   • Passwords are never stored at all — not even hashed. Only the wrapped DEK exists.
+// Keys
+//   DEK         random AES-256-GCM key shared by the team; encrypts every record before upload.
+//   master      PBKDF2-SHA256(password, salt = lookup id, 310,000 iterations).
+//   authKey     HKDF(master, "auth")  -> sent to the server, which stores only a bcrypt hash of it.
+//   KEK         HKDF(master, "kek")   -> never leaves the browser; wraps the DEK for this user.
+//   lookup id   PBKDF2(lowercased username, per-team salt) -> the server never sees usernames.
+// The server can check a sign-in but cannot derive the KEK, so it can't read any data.
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
-export const PBKDF2_ITER_PASSWORD = 310000; // OWASP 2023 guidance for PBKDF2-SHA256
+export const PBKDF2_ITER_PASSWORD = 310000;
 export const PBKDF2_ITER_USERNAME = 100000;
 
 export function b64(buf) {
@@ -27,66 +27,77 @@ export function unb64(str) {
   return out;
 }
 export function randomBytes(n) { return crypto.getRandomValues(new Uint8Array(n)); }
+export function uuid() { return crypto.randomUUID(); }
 
-async function pbkdf2Bits(secret, salt, iterations) {
-  const base = await crypto.subtle.importKey('raw', enc.encode(secret), 'PBKDF2', false, ['deriveBits', 'deriveKey']);
-  return crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations }, base, 256);
+async function pbkdf2(secret, saltBytes, iterations) {
+  const base = await crypto.subtle.importKey('raw', enc.encode(secret), 'PBKDF2', false, ['deriveBits']);
+  return crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: saltBytes, iterations }, base, 256);
 }
 
-/** Stable, non-reversible lookup id for a username (case-insensitive). */
 export async function usernameLookupId(username, appSaltB64) {
-  const bits = await pbkdf2Bits(username.trim().toLowerCase(), unb64(appSaltB64), PBKDF2_ITER_USERNAME);
-  return b64(bits);
+  return b64(await pbkdf2(username.trim().toLowerCase(), unb64(appSaltB64), PBKDF2_ITER_USERNAME));
 }
 
-async function deriveKek(password, saltBytes, iterations) {
-  const base = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
-  return crypto.subtle.deriveKey(
-    { name: 'PBKDF2', hash: 'SHA-256', salt: saltBytes, iterations },
-    base, { name: 'AES-GCM', length: 256 }, false, ['wrapKey', 'unwrapKey']
-  );
+/** Derive the sign-in key (for the server) and the key-encryption key (stays here). */
+export async function deriveUserKeys(password, lookupId) {
+  const master = await pbkdf2(password, enc.encode('soctracker|' + lookupId), PBKDF2_ITER_PASSWORD);
+  const hk = await crypto.subtle.importKey('raw', master, 'HKDF', false, ['deriveBits', 'deriveKey']);
+  const salt = new Uint8Array(32);
+  const authBits = await crypto.subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt, info: enc.encode('soctracker-auth') }, hk, 256);
+  const kek = await crypto.subtle.deriveKey(
+    { name: 'HKDF', hash: 'SHA-256', salt, info: enc.encode('soctracker-kek') },
+    hk, { name: 'AES-GCM', length: 256 }, false, ['wrapKey', 'unwrapKey']);
+  return { authKey: b64(authBits), kek };
 }
 
 export async function generateDek() {
   return crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
 }
 
-/** Wrap the DEK for one user. lookupId is bound as AAD so entries can't be swapped between users. */
-export async function wrapDekForPassword(dek, password, lookupId) {
-  const salt = randomBytes(16);
+export async function wrapDek(dek, kek, lookupId) {
   const iv = randomBytes(12);
-  const kek = await deriveKek(password, salt, PBKDF2_ITER_PASSWORD);
   const wrapped = await crypto.subtle.wrapKey('raw', dek, kek, { name: 'AES-GCM', iv, additionalData: enc.encode(lookupId) });
-  return { salt: b64(salt), iv: b64(iv), wrapped: b64(wrapped), iter: PBKDF2_ITER_PASSWORD, updatedAt: Date.now() };
+  return { v: 2, iv: b64(iv), wrapped: b64(wrapped) };
 }
 
-/** Returns the DEK, or throws if the password is wrong / entry tampered. */
-export async function unwrapDekWithPassword(entry, password, lookupId) {
-  const kek = await deriveKek(password, unb64(entry.salt), entry.iter || PBKDF2_ITER_PASSWORD);
+export async function unwrapDek(slot, kek, lookupId) {
   return crypto.subtle.unwrapKey(
-    'raw', unb64(entry.wrapped), kek,
-    { name: 'AES-GCM', iv: unb64(entry.iv), additionalData: enc.encode(lookupId) },
-    { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']
-  );
+    'raw', unb64(slot.wrapped), kek,
+    { name: 'AES-GCM', iv: unb64(slot.iv), additionalData: enc.encode(lookupId) },
+    { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
 }
 
-export async function encryptJson(dek, obj) {
+/** Encrypt a JSON value. `aad` (e.g. the record id) binds the ciphertext to its row. */
+export async function encryptJson(key, obj, aad = '') {
   const iv = randomBytes(12);
-  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, dek, enc.encode(JSON.stringify(obj)));
+  const params = { name: 'AES-GCM', iv };
+  if (aad) params.additionalData = enc.encode(aad);
+  const ct = await crypto.subtle.encrypt(params, key, enc.encode(JSON.stringify(obj)));
   return { iv: b64(iv), ct: b64(ct) };
 }
-export async function decryptJson(dek, box) {
-  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(box.iv) }, dek, unb64(box.ct));
+export async function decryptJson(key, box, aad = '') {
+  const params = { name: 'AES-GCM', iv: unb64(box.iv) };
+  if (aad) params.additionalData = enc.encode(aad);
+  const pt = await crypto.subtle.decrypt(params, key, unb64(box.ct));
   return JSON.parse(dec.decode(pt));
 }
 
-/** Readable random temp password (no ambiguous chars). */
-export function generateTempPassword(len = 14) {
-  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%*?';
-  const bytes = randomBytes(len);
-  let s = '';
-  for (let i = 0; i < len; i++) s += alphabet[bytes[i] % alphabet.length];
-  return s;
+/** Deterministic UUID for singleton records (settings, one schedule per month). */
+export async function uuidFromString(s) {
+  const h = new Uint8Array(await crypto.subtle.digest('SHA-256', enc.encode('soctracker:' + s))).slice(0, 16);
+  h[6] = (h[6] & 0x0f) | 0x40;
+  h[8] = (h[8] & 0x3f) | 0x80;
+  const hex = [...h].map((x) => x.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-export function uuid() { return crypto.randomUUID(); }
+export function generateTempPassword(len = 14) {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%*?';
+  for (;;) {
+    const bytes = randomBytes(len);
+    let s = '';
+    for (let i = 0; i < len; i++) s += alphabet[bytes[i] % alphabet.length];
+    const classes = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/].filter((r) => r.test(s)).length;
+    if (classes >= 3) return s;
+  }
+}

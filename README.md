@@ -1,112 +1,104 @@
 # SOC Tracker
 
-A shift tracker for SOC analyst teams: case tracking, shift handovers, team-lead notices, shift schedules and an auto-generated daily report, with individual logins for analysts, team leads and admins.
+A shared shift tracker for SOC analyst teams. It covers case tracking with case templates, an incident tracker, search across history, shift handovers, team-lead notices, the shift schedule and an auto-generated daily report. Each analyst, team lead and admin has their own login.
 
-**This is a proof of concept.** It runs entirely in the browser as a static site on GitHub Pages. There is no server, so each browser keeps its own encrypted copy of the data. See [Limits of this version](#limits-of-this-version) before using it with real case data.
+The site is a static page on GitHub Pages. Data is stored in a Supabase (Postgres) database, but **it's encrypted in the browser before it's sent**. The database only ever holds ciphertext, plus the minimum it needs to enforce access: record types, versions, timestamps, user IDs and roles.
 
-## Try it
+## First-time setup (once)
 
-Open the GitHub Pages URL and select **Try the demo** on the setup screen. That loads a fictional team with sample cases, a handover, a notice and two months of schedule, plus three accounts:
+1. In Supabase, go to **SQL Editor → New query**, paste the whole of [`supabase/setup.sql`](supabase/setup.sql) and select **Run**.
+2. The result at the bottom shows a **setup code**. Copy it.
+3. Open the site. It shows **Set up the tracker**. Enter the setup code, your team name and the first admin account.
+4. Sign in and create everyone else's accounts under **Users**.
 
-| Role | Username | Password |
-|---|---|---|
-| Admin | `admin.demo` | `Demo-Admin-2026!` |
-| Team lead | `lead.demo` | `Demo-Lead-2026!` |
-| Analyst | `analyst.demo` | `Demo-Analyst-2026!` |
+Without the setup code nobody can claim the tracker, even though the site is public. The code is deleted once the first admin exists. The script is safe to run again later, for example after an update: it replaces the functions and keeps all data.
 
-Demo data stays in that visitor's browser only. **Erase demo and start fresh** on the sign-in screen removes it.
+The project URL and publishable key are in `js/config.js`. The publishable key is designed to be public. **Never put the secret (`sb_secret_…`) or service-role key in this repo.** The app doesn't need it.
 
 ## Features
 
-**Case tracker.** Case name, escalated team or user, severity, detection, reported and acknowledgement date and time, SLA breach (Y/N), status (WIP until closed). Any analyst can close a case another analyst opened, and the tracker records who opened it and who closed it. Each case has a comment thread and a full change history. SLA breach is calculated from per-severity targets (detection to acknowledgement), and analysts can override it.
+**Case tracker.** Case name, escalated team or user, severity, detection, reported and acknowledgement date and time, SLA breach (Y/N), and status, which stays WIP until closed. Any analyst can close another analyst's case. SLA breach is calculated from per-severity targets and can be overridden. Each case has comments and a full change history.
 
-**Daily report.** Download as Excel (Daily report, Summary and Handovers sheets), CSV, or print to PDF. It covers the 24 hours ending at the cutoff (default 18:00 the previous day to 18:00 on the chosen day). Status is shown as it was at the cutoff. Cases still open from earlier days are included by default and can be switched off.
+**Case templates (case types).** Team leads and admins build case types in the app. Each type has:
+- **Its own fields:** short text, long text, number, date and time, pick from a list, yes or no, or team member.
+- **A rule for each field:** optional, required to save, or required to close.
+- **Mandated standard fields:** it can also require some of the standard fields (escalated to, reported time, acknowledgement time, source, notes).
 
-**Shift handover.** Analysts post notes for the next shift and attach the open cases they're handing over. Each handover tracks who has read it, and unread handovers are badged in the menu.
+Analysts pick the type when logging a case, and the form enforces it. Closing a case prompts for any "required to close" fields still empty. Existing cases keep the fields they were created with, even if the template changes later. There's a one-click starter set: Phishing, Malware alert and Account lockout.
 
-**Notices.** Team leads post items to pay attention to, marked normal or important, with an optional expiry date. Every analyst sees them on the dashboard until they acknowledge them, and the team lead sees who has acknowledged.
+**Incident tracker.** From any case, **Escalate to incident** declares a new incident or links the case to one that's already open. Incidents have:
+- **Details:** severity, category, owner, start time, summary and impact, affected assets, root cause and lessons learned.
+- **Lifecycle:** Open, Contained, Eradicated, Recovered, Closed, with each stage's time recorded.
+- **A running incident log** of actions taken.
 
-**Shift schedule.** Team leads build the month in the app (click a cell to cycle M, A, O, AL), import an Excel file, or copy last month's pattern. **Download template** gives a pre-filled sheet with the team's names and the month's days. Import also accepts OFF, A/L, Morning, Afternoon and date headers. Analysts see the month, today's roster and their own next 7 days.
+Closing an incident requires a summary and root cause. Linked cases show the incident badge everywhere.
 
-**Users.** Admins and team leads create accounts, reset passwords, rename, change roles and disable accounts. New and reset accounts get a temporary password and must change it at first sign-in. Team leads can manage analysts and team leads but not admin accounts. That's deliberate: if a team lead could create admins, there would be no difference between the two roles. To change it, edit `can.manageTarget` and `can.assignRole` in `js/store.js`.
+**Search history.** Search all cases and incidents by:
+- **Keyword:** names, notes, comments, incident logs and case-type fields.
+- **Person and role:** opened, closed, commented or edited, escalated to them, incident owner, declared the incident.
+- **Case type, then a specific field and value**, for example Phishing where Verdict = Malicious.
+- **Severity, status and date range.**
 
-**Also included.** Dashboard with a 24-hour report-window timeline, audit log (with CSV export), settings for SLA targets, shift times, report cutoff and idle timeout, automatic sign-out after inactivity, lockout after 5 failed sign-ins, and encrypted backup, merge and restore.
+Results export to CSV, including the chosen case type's fields as columns.
+
+**Daily report.** Download as Excel (Daily report, Summary, Incidents and Handovers sheets), CSV or PDF. It covers the 24 hours ending at the cutoff (default 18:00 to 18:00), with statuses as they were at the cutoff.
+
+**Shift handover, notices and shift schedule.** These work as before. Handovers have read tracking. Notices must be acknowledged, and team leads see who has acknowledged. The schedule is M, A, O or AL, built in the app or imported from Excel, with a template download.
+
+**Live for the whole team.** Changes appear on everyone's screen within about 8 seconds. When two people save the same case at once, both changes are kept: comments, log entries and acknowledgements merge, and later field edits win. Background updates never wipe what you're typing. You get a **New updates** button instead.
 
 ### Roles
 
 | | Analyst | Team lead | Admin |
 |---|:-:|:-:|:-:|
-| Log, edit, close and reopen cases; comment | ✓ | ✓ | ✓ |
-| Write handovers, acknowledge notices, download reports | ✓ | ✓ | ✓ |
-| Delete cases | | ✓ | ✓ |
-| Post notices, edit the schedule, change settings, view the audit log | | ✓ | ✓ |
+| Log, edit, close and reopen cases; comment; escalate to incidents | ✓ | ✓ | ✓ |
+| Declare and update incidents; write handovers; search; download reports | ✓ | ✓ | ✓ |
+| Delete cases and incidents; post notices; edit the schedule and settings | | ✓ | ✓ |
+| Build case templates; view the audit log | | ✓ | ✓ |
 | Create, reset and disable analyst and team lead accounts | | ✓ | ✓ |
-| Create, reset and disable admin accounts; replace or erase the data | | | ✓ |
+| Create, reset and disable admin accounts | | | ✓ |
 
-## How the encryption works
+The database enforces these roles, not just the app. Calling the API directly with an analyst session can't post notices, read the audit log or create users.
 
-Everything uses the browser's built-in WebCrypto API. There are no third-party crypto libraries.
+## Security model
 
-- One random 256-bit key encrypts all tracker data (cases, notes, users, schedule, audit log) with **AES-256-GCM**. The data is re-encrypted with a fresh IV on every save.
-- Each user's password is run through **PBKDF2-SHA256 (310,000 iterations, random salt)** to derive a key that wraps the data key. A wrong password can't unwrap it, so no password or password hash is stored anywhere.
-- **Usernames** are stored only inside the encrypted data. The sign-in lookup uses a PBKDF2 hash of the username with a random per-install salt.
-- Disabling an account deletes its key slot, so its password stops working immediately.
-- The page sets a strict Content Security Policy (scripts only from this site, no inline scripts) and escapes all user input to block XSS.
+- **Data encryption:** each record is encrypted with AES-256-GCM using a team key, and bound to its row ID so ciphertext can't be swapped between records.
+- **Passwords:** each password goes through PBKDF2-SHA256 (310,000 iterations), then HKDF splits the result into two keys:
+  - a **sign-in key**, which the server stores only as a bcrypt hash;
+  - a **key-encryption key**, which never leaves the browser and unwraps the team key.
 
-What localStorage and backup files contain: a random salt, one wrapped key per user, and an encrypted blob. Nothing readable.
+  So the server can check a sign-in but can't decrypt anything.
+- **Usernames:** the server stores a salted PBKDF2 hash of each username, never the name itself. Display names are encrypted.
+- **Sign-in protection:** sessions last up to 12 hours and use random tokens stored hashed. Five failed sign-ins lock an account for 5 minutes. Disabling an account ends its sessions and deletes its key.
+- **Audit:** sign-ins, failed sign-ins and account changes are written by the database itself. App events are also logged, encrypted.
+- **Browser hardening:** strict Content Security Policy, all input escaped, and no third-party scripts or CDNs.
 
-## Limits of this version
+**Limits to know about**
+- **No recovery.** If every admin forgets their password, nobody can decrypt the data.
+- **Encryption isn't retroactive.** A disabled user can't sign in, but anything they already saw stays seen.
+- **Free Supabase projects pause after a week with no activity.** Unpause them from the Supabase dashboard.
+- **Approval first.** Don't put real incident data in a third-party cloud without your information security team's approval.
 
-These come from running on GitHub Pages with no backend. Know them before you show it to anyone or put real data in it:
+## Deploy
 
-1. **Data is per browser.** Analysts on different machines don't see each other's changes automatically. To share work, use **Backup and sync**: download an encrypted backup, then **Merge** it on the other machine (the newest version of each record wins).
-2. **The site is public.** GitHub Pages sites on free and Pro plans can be reached by anyone with the URL. The data itself never leaves the browser, but don't put links to the site anywhere public.
-3. **Security is only as strong as the weakest password.** Anyone who has a copy of the encrypted data and any one valid password can read everything. Enforce strong passwords.
-4. **Revocation isn't retroactive.** A disabled user's password no longer works on this copy, but it still opens older backup files they already had.
-5. **Lockout and roles are enforced by the browser.** A technical user with the data and a valid password could bypass them with developer tools. Real enforcement needs a server.
-6. **Don't put real incident data in it** without approval from your information security and compliance teams.
-
-### Going to production
-
-Keep this frontend and add a backend that holds the data and checks permissions:
-
-- **Internal (recommended for regulated environments):** a small Node or Python API with PostgreSQL in a container on an internal VM, behind the corporate SSO. The data never leaves the network.
-- **Cloud:** Supabase (Postgres, Auth, row-level security) with the frontend still on GitHub Pages. Only do this if policy allows SOC data on a third-party cloud.
-
-## Deploy to GitHub Pages
-
-```bash
-cd SOCTracker
-git init
-git add .
-git commit -m "SOC Tracker proof of concept"
-git branch -M main
-git remote add origin https://github.com/<your-username>/SOCTracker.git
-git push -u origin main
-```
-
-Then on GitHub: **Settings → Pages → Build and deployment → Source: Deploy from a branch → Branch: `main`, folder `/ (root)` → Save.** After a minute or two the site is live at `https://<your-username>.github.io/SOCTracker/`.
-
-To update, commit and `git push`. Pages redeploys automatically.
-
-## Run locally
-
-It has to be served over HTTP, because ES modules don't load from `file://`:
-
-```bash
-python3 -m http.server 8080
-# open http://localhost:8080
-```
+Push to `main`. GitHub Pages serves the repo root (**Settings → Pages → Deploy from a branch → `main` / root**).
 
 ## Project layout
 
 ```
 index.html              App shell and Content Security Policy
-css/app.css             Styles (black and orange theme, print styles for the report)
-js/crypto.js            WebCrypto: PBKDF2, AES-GCM, key wrapping
-js/store.js             Encrypted storage, roles and permissions, cases, users, schedule, merge
-js/app.js               Views and routing
-js/excel.js             Schedule import and export, report Excel and CSV
-js/demo.js              Demo data
-vendor/xlsx.full.min.js SheetJS 0.18.5 (Apache-2.0), bundled locally so there's no CDN dependency
+css/app.css             Styles
+js/config.js            Supabase URL and publishable key
+js/api.js               Calls to the database functions
+js/crypto.js            WebCrypto: PBKDF2, HKDF, AES-GCM, key wrapping
+js/store.js             Encrypted sync, permissions, cases, incidents, templates, users
+js/app.js               Routing, sign-in, dashboard, reports, handover, notices, schedule, users
+js/cases.js             Case tracker, case form with templates, escalation
+js/incidents.js         Incident tracker
+js/templates.js         Case template builder
+js/search.js            Search history
+js/excel.js             Excel import and export
+js/ui.js                Shared UI helpers
+supabase/setup.sql      Database setup: run once in the Supabase SQL Editor
+vendor/xlsx.full.min.js SheetJS 0.18.5 (Apache-2.0)
 ```

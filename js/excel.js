@@ -124,8 +124,8 @@ export function exportScheduleXlsx(month, y, m, team) {
   XLSX.writeFile(wb, `shift-schedule-${y}-${pad(m + 1)}.xlsx`);
 }
 
-const REPORT_HEADERS = ['#', 'Case Reference', 'Case Name', 'Escalated Team / User', 'Severity', 'Detection Date & Time', 'Reported Date & Time', 'Acknowledgement Date & Time', 'SLA Breach (Y/N)', 'Status', 'Opened By', 'Closed By'];
-const reportRow = (x, i) => [i + 1, x.ref, x.name, x.escalatedTo, x.severity, fmt(x.detectedAt), fmt(x.reportedAt), fmt(x.ackAt), x.sla, x.status, x.openedBy, x.closedBy];
+const REPORT_HEADERS = ['#', 'Case Reference', 'Case Name', 'Escalated Team / User', 'Severity', 'Detection Date & Time', 'Reported Date & Time', 'Acknowledgement Date & Time', 'SLA Breach (Y/N)', 'Status', 'Opened By', 'Closed By', 'Case Type', 'Incident'];
+const reportRow = (x, i) => [i + 1, x.ref, x.name, x.escalatedTo, x.severity, fmt(x.detectedAt), fmt(x.reportedAt), fmt(x.ackAt), x.sla, x.status, x.openedBy, x.closedBy, x.caseType, x.incident];
 const fileStamp = (r) => fmt(r.w.end).slice(0, 10);
 
 export function downloadReportXlsx(r, meta) {
@@ -138,7 +138,7 @@ export function downloadReportXlsx(r, meta) {
     REPORT_HEADERS,
   ];
   const ws = XLSX.utils.aoa_to_sheet([...head, ...r.rows.map(reportRow)]);
-  ws['!cols'] = [4, 18, 44, 26, 10, 19, 19, 19, 10, 9, 18, 18].map((wch) => ({ wch }));
+  ws['!cols'] = [4, 18, 44, 26, 10, 19, 19, 19, 10, 9, 18, 18, 18, 16].map((wch) => ({ wch }));
   ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 4, c: 0 }, e: { r: 4 + Math.max(r.rows.length, 1), c: REPORT_HEADERS.length - 1 } }) };
   XLSX.utils.book_append_sheet(wb, ws, 'Daily report');
 
@@ -151,7 +151,8 @@ export function downloadReportXlsx(r, meta) {
     ['WIP at cutoff', count((x) => x.status === 'WIP')],
     ['Closed at cutoff', count((x) => x.status === 'Closed')],
     ['SLA breaches', count((x) => x.sla === 'Y')],
-    ['Carried over from earlier', count((x) => x.carried)], [],
+    ['Carried over from earlier', count((x) => x.carried)],
+    ['Incidents', r.incidents.length], [],
     ['Severity', 'Cases', 'SLA breaches'],
     ...sev.map((s) => [s, count((x) => x.severity === s), count((x) => x.severity === s && x.sla === 'Y')]),
   ];
@@ -159,6 +160,12 @@ export function downloadReportXlsx(r, meta) {
   ws2['!cols'] = [{ wch: 28 }, { wch: 18 }, { wch: 14 }];
   XLSX.utils.book_append_sheet(wb, ws2, 'Summary');
 
+  if (r.incidents.length) {
+    const ws4 = XLSX.utils.aoa_to_sheet([['Incident Reference', 'Title', 'Severity', 'Category', 'Status at Cutoff', 'Owner', 'Declared', 'Contained', 'Closed', 'Linked Cases', 'Log Updates in Window'],
+      ...r.incidents.map((x) => [x.ref, x.title, x.severity, x.category, x.status, x.owner, fmt(x.declaredAt), fmt(x.containedAt), fmt(x.closedAt), x.cases, x.updates])]);
+    ws4['!cols'] = [18, 44, 10, 22, 16, 20, 17, 17, 17, 30, 12].map((wch) => ({ wch }));
+    XLSX.utils.book_append_sheet(wb, ws4, 'Incidents');
+  }
   if (r.handovers.length) {
     const ws3 = XLSX.utils.aoa_to_sheet([['Date', 'Shift', 'Author', 'Posted', 'Notes'],
       ...r.handovers.map((h) => [h.date, h.shift === 'M' ? 'Morning' : 'Afternoon', h.authorName || '', fmt(h.createdAt), h.body])]);
