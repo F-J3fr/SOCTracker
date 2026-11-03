@@ -332,6 +332,9 @@ button.linkish { background: none; border: 0; padding: 0; color: var(--orange-hi
 .tag.kind-inc { background: rgba(255,61,87,.14); color: #ff8b9a; }
 .tag.kind-srv { background: rgba(111,168,255,.14); color: var(--info); }
 
+/* ---------- credit ---------- */
+.credit { position: fixed; right: 12px; bottom: 8px; z-index: 1; font-size: 11px; letter-spacing: .02em; color: var(--text); opacity: .22; pointer-events: none; user-select: none; }
+
 /* ---------- responsive ---------- */
 @media (max-width: 1000px) { .grid-2 { grid-template-columns: 1fr; } }
 @media (max-width: 820px) {
@@ -355,7 +358,7 @@ button.linkish { background: none; border: 0; padding: 0; color: var(--orange-hi
 /* ---------- print (daily report) ---------- */
 @media print {
   body { background: #fff; color: #000; }
-  .sidebar, .topbar, .toolbar, .no-print, #toasts { display: none !important; }
+  .sidebar, .topbar, .toolbar, .no-print, #toasts, .credit { display: none !important; }
   .shell { display: block; }
   .content { padding: 0; }
   .panel, .table-wrap { border: 0; background: #fff; padding: 0; }

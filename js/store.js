@@ -472,12 +472,14 @@ function validateCase(input) {
 
 /** Fields that can't change once a case is logged. Reported time can be filled in once if it was left empty. */
 function checkCaseLocks(c, patch) {
+  if (isLead()) return; // team leads and admins can correct anything; the case history records old and new values
   const same = (a, b) => (a ?? '') === (b ?? '');
   if (patch.name !== undefined && !same(patch.name, c.name)) throw new Error("The case name can't be changed after the case is logged.");
   if (patch.detectedAt !== undefined && !same(patch.detectedAt, c.detectedAt)) throw new Error("The detection time can't be changed after the case is logged.");
   if (patch.reportedAt !== undefined && c.reportedAt && !same(patch.reportedAt, c.reportedAt)) throw new Error("The reported time can't be changed once it's set.");
 }
 export const CASE_LOCKED = { name: 'always', detectedAt: 'always', reportedAt: 'once set' };
+export const canEditLocked = () => isLead();
 
 export async function saveCase(input) {
   const me = session.me;
@@ -612,23 +614,47 @@ export async function linkCaseToIncident(caseId, incidentId) {
 
 const INC_FIELDS = { severity: 'Severity', category: 'Category', summary: 'Summary and impact', affectedAssets: 'Affected assets', rootCause: 'Root cause', lessonsLearned: 'Lessons learned' };
 const INC_LOCKED = { title: 'title', ownerId: 'owner', startedAt: 'start time' };
-export async function updateIncident(id, patch) {
+export const INCIDENT_LOCKED_LABELS = INC_LOCKED;
+/**
+ * Edit an incident. Title, owner and start time are locked for analysts.
+ * Team leads and admins can change them; reassigning the owner needs a reason.
+ */
+export async function updateIncident(id, patch, ownerReason = '') {
+  const lead = isLead();
   const res = await mutate('incident', id, (i) => {
     if (!i) throw new ApiError('deleted');
-    for (const [k, label] of Object.entries(INC_LOCKED)) {
-      if (patch[k] !== undefined && (patch[k] ?? '') !== (i[k] ?? '') && !(k === 'title' && patch[k].trim() === i.title)) throw new Error(`The incident ${label} can't be changed after the incident is declared.`);
-    }
     const changed = [];
-    for (const [k, label] of Object.entries(INC_FIELDS)) {
-      if (patch[k] !== undefined && patch[k] !== i[k]) { changed.push(label); i[k] = typeof patch[k] === 'string' ? patch[k].trim() : patch[k]; }
+    for (const [k, label] of Object.entries(INC_LOCKED)) {
+      if (patch[k] === undefined) continue;
+      const nv = typeof patch[k] === 'string' ? patch[k].trim() : patch[k];
+      if ((nv ?? '') === (i[k] ?? '')) continue;
+      if (!lead) throw new Error(`The incident ${label} can't be changed after the incident is declared. Ask a team lead or admin.`);
+      if (k === 'title' && !nv) throw new Error('Give the incident a title.');
+      if (k === 'ownerId') {
+        if (!(ownerReason || '').trim()) throw new Error('Write a reason for reassigning the owner.');
+        i.log.push({ ...logEntry('owner', `Owner changed from ${userName(i.ownerId)} to ${userName(nv)}: ${ownerReason.trim()}`), from: i.ownerId, toOwner: nv, note: ownerReason.trim() });
+      } else {
+        const show = (v) => (k === 'startedAt' ? fmtTs(v) : v);
+        i.log.push(logEntry('edit', `Changed ${label} from "${show(i[k])}" to "${show(nv)}"`));
+      }
+      i[k] = nv;
+      changed.push(label);
     }
-    if (!i.title) throw new Error('Give the incident a title.');
-    if (!changed.length) return null;
-    i.log.push(logEntry('edit', `Updated ${changed.join(', ')}`));
+    const plain = [];
+    for (const [k, label] of Object.entries(INC_FIELDS)) {
+      if (patch[k] !== undefined && patch[k] !== i[k]) { plain.push(label); i[k] = typeof patch[k] === 'string' ? patch[k].trim() : patch[k]; }
+    }
+    if (plain.length) i.log.push(logEntry('edit', `Updated ${plain.join(', ')}`));
+    if (!changed.length && !plain.length) return null;
     return i;
   });
   addAudit('incident.update', `Updated ${res.ref}`);
   return res;
+}
+function fmtTs(t) {
+  if (!t) return '';
+  const d = new Date(t); const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
 const STATUS_STAMP = { Contained: 'containedAt', Eradicated: 'eradicatedAt', Recovered: 'recoveredAt', Closed: 'closedAt' };

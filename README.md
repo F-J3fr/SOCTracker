@@ -35,11 +35,15 @@ Closing an incident requires a summary and root cause. Linked cases show the inc
 
 **Incident stage from the case.** Every case escalated to an incident has an **Incident stage** dropdown, as does the incident itself. Analysts can move the incident to any stage, including back to an earlier one. **Every change requires a written reason.** It's saved to the incident log and the audit log with the person's name and time, and the case shows the latest change and its reason.
 
-**Locked after submission.** These can't be edited once saved:
+**Locked fields, with team lead and admin corrections.** For analysts, these can't be edited once saved:
 - **Cases:** the case name and detection time; the reported time once it's been filled in.
 - **Incidents:** the title, owner and start time.
 
-The edit forms show them as locked, and the data layer refuses changes to them.
+Team leads and admins can edit all of them:
+- **Reassigning the owner** needs a written reason, which goes to the incident log.
+- **Other changes** to these fields are recorded in the case history or incident log with the old and new values.
+
+For analysts the fields show as locked, and the data layer refuses changes to them.
 
 **Search history.** Search all cases and incidents by:
 - **Keyword:** names, notes, comments, incident logs and case-type fields.
@@ -62,6 +66,7 @@ Results export to CSV, including the chosen case type's fields as columns.
 | Log, edit, close and reopen cases; comment; escalate to incidents | ✓ | ✓ | ✓ |
 | Declare and update incidents; write handovers; search; download reports | ✓ | ✓ | ✓ |
 | Delete cases and incidents; post notices; edit the schedule and settings | | ✓ | ✓ |
+| Correct locked fields (case name and times, incident title, owner and start) | | ✓ | ✓ |
 | Build case templates; view the audit log | | ✓ | ✓ |
 | Create, reset and disable analyst and team lead accounts | | ✓ | ✓ |
 | Create, reset and disable admin accounts | | | ✓ |

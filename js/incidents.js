@@ -79,6 +79,8 @@ function ownerOptions(sel) {
 
 /** Declare (inc = null) or edit an incident. fromCase pre-fills and links the case. */
 export function incidentForm(inc = null, fromCase = null) {
+  const lead = S.canEditLocked();
+  const locked = !!inc && !lead;
   const v = inc || {
     title: fromCase?.name || '', severity: fromCase?.severity || 'High', category: 'Other', ownerId: S.currentUser().id,
     summary: fromCase?.notes || '', affectedAssets: '', startedAt: fromCase?.detectedAt || Date.now(), rootCause: '', lessonsLearned: '',
@@ -87,18 +89,20 @@ export function incidentForm(inc = null, fromCase = null) {
     title: inc ? `Edit ${esc(inc.ref)}` : fromCase ? `Declare incident from ${esc(fromCase.ref)}` : 'Declare incident',
     width: '760px',
     body: `
-      ${inc ? `<div class="field"><label for="it">Incident title <span class="lock">locked</span></label><input id="it" value="${esc(v.title)}" disabled></div>`
+      ${locked ? `<div class="field"><label for="it">Incident title <span class="lock">locked</span></label><input id="it" value="${esc(v.title)}" disabled></div>`
+        : inc ? `<div class="field"><label for="it">Incident title<span class="req">*</span></label><input id="it" maxlength="160" value="${esc(v.title)}"><div class="hint">Locked for analysts. Changes to the title, owner and start time are recorded in the incident log.</div></div>`
         : `<div class="field"><label for="it">Incident title<span class="req">*</span></label><input id="it" maxlength="160" value="${esc(v.title)}"><div class="hint">The title, owner and start time can't be changed once the incident is declared.</div></div>`}
       <div class="field-row">
         <div class="field"><label for="isv">Severity<span class="req">*</span></label><select id="isv">${S.SEVERITIES.map((s) => `<option ${s === v.severity ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
         <div class="field"><label for="ict">Category</label><select id="ict">${S.INCIDENT_CATEGORIES.map((s) => `<option ${s === v.category ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
-        <div class="field"><label for="io">Owner${inc ? ' <span class="lock">locked</span>' : ''}</label><select id="io" ${inc ? 'disabled' : ''}>${ownerOptions(v.ownerId)}</select></div>
+        <div class="field"><label for="io">Owner${locked ? ' <span class="lock">locked</span>' : ''}</label><select id="io" ${locked ? 'disabled' : ''}>${ownerOptions(v.ownerId)}</select></div>
       </div>
       <div class="field-row">
-        ${inc ? `<div class="field"><label for="ist">Incident start <span class="lock">locked</span></label><input type="datetime-local" id="ist" value="${toInput(v.startedAt)}" disabled></div>`
+        ${locked ? `<div class="field"><label for="ist">Incident start <span class="lock">locked</span></label><input type="datetime-local" id="ist" value="${toInput(v.startedAt)}" disabled></div>`
           : `<div class="field"><label for="ist">Incident start</label><div class="with-now"><input type="datetime-local" id="ist" value="${toInput(v.startedAt)}"><button type="button" class="sm" data-now="ist">Now</button></div>
           <div class="hint">When the activity began. Defaults to the case's detection time.</div></div>`}
       </div>
+      ${inc && lead ? `<div class="field hidden" id="ownr-wrap"><label for="ownr">Reason for reassigning the owner<span class="req">*</span></label><textarea id="ownr" style="min-height:64px" placeholder="e.g. Ahmed is on annual leave from tomorrow, Sara takes over"></textarea><div class="hint">Saved to the incident log.</div></div>` : ''}
       <div class="field"><label for="isum">Summary and impact</label><textarea id="isum" maxlength="8000" placeholder="What happened, who and what is affected">${esc(v.summary)}</textarea></div>
       <div class="field"><label for="ias">Affected assets</label><textarea id="ias" maxlength="4000" style="min-height:64px" placeholder="Hosts, accounts, applications">${esc(v.affectedAssets)}</textarea></div>
       ${inc ? `<div class="field"><label for="irc">Root cause</label><textarea id="irc" maxlength="8000">${esc(v.rootCause)}</textarea></div>
@@ -106,12 +110,18 @@ export function incidentForm(inc = null, fromCase = null) {
       ${fromCase ? `<p class="small muted">${esc(fromCase.ref)} will be linked to this incident.</p>` : ''}
       <p class="error"></p>`,
     foot: `<button type="button" data-close>Cancel</button><button class="primary" type="submit">${inc ? 'Save changes' : 'Declare incident'}</button>`,
-    onMount: (f) => f.querySelectorAll('[data-now]').forEach((b) => (b.onclick = () => { f.querySelector('#' + b.dataset.now).value = toInput(Date.now()); })),
+    onMount: (f) => {
+      f.querySelectorAll('[data-now]').forEach((b) => (b.onclick = () => { f.querySelector('#' + b.dataset.now).value = toInput(Date.now()); }));
+      const io = f.querySelector('#io'); const wrap = f.querySelector('#ownr-wrap');
+      if (inc && wrap) io.addEventListener('change', () => wrap.classList.toggle('hidden', io.value === inc.ownerId));
+    },
     onSubmit: async (f) => {
       const g = (id) => f.querySelector('#' + id)?.value;
       const data = { title: g('it'), severity: g('isv'), category: g('ict'), ownerId: g('io'), startedAt: fromInput(g('ist')) || Date.now(), summary: g('isum'), affectedAssets: g('ias') };
       if (inc) {
-        await S.updateIncident(inc.id, { severity: data.severity, category: data.category, summary: data.summary, affectedAssets: data.affectedAssets, rootCause: g('irc'), lessonsLearned: g('ill') });
+        const patch = { severity: data.severity, category: data.category, summary: data.summary, affectedAssets: data.affectedAssets, rootCause: g('irc'), lessonsLearned: g('ill') };
+        if (lead) Object.assign(patch, { title: data.title, ownerId: data.ownerId, startedAt: data.startedAt });
+        await S.updateIncident(inc.id, patch, g('ownr') || '');
         toast(`${inc.ref} saved.`);
         setTimeout(() => incidentDetail(inc.id), 0);
       } else {

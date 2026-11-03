@@ -136,13 +136,15 @@ export function caseForm(c = null) {
   const activeTpls = d.templates.filter((t) => t.active !== false).sort((a, b) => a.name.localeCompare(b.name));
   const v = c || { severity: 'Medium', status: 'WIP', detectedAt: Date.now(), slaManual: false, slaBreach: 'N', fieldValues: {} };
   let tpl = c ? c.template : null;
+  const lead = S.canEditLocked();
 
   const coreReq = (k) => requiredMark(tpl?.core?.[k]);
   const body = () => `
       ${c ? (tpl ? `<p class="small muted">Case type: <b>${esc(tpl.name)}</b></p>` : '')
         : `<div class="field"><label for="ctype">Case type</label><select id="ctype"><option value="">No template</option>${activeTpls.map((t) => `<option value="${t.id}" ${tpl?.id === t.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select>
           ${activeTpls.length ? '<div class="hint">Picking a type adds its fields and marks what must be filled in.</div>' : (S.can.manageTemplates() ? '<div class="hint">No case types yet. Create them under Case templates.</div>' : '')}</div>`}
-      ${c ? `<div class="field"><label for="cn">Case name <span class="lock">locked</span></label><input id="cn" value="${esc(v.name)}" disabled></div>`
+      ${c && !lead ? `<div class="field"><label for="cn">Case name <span class="lock">locked</span></label><input id="cn" value="${esc(v.name)}" disabled></div>`
+        : c ? `<div class="field"><label for="cn">Case name<span class="req">*</span></label><input id="cn" maxlength="160" value="${esc(v.name)}"><div class="hint">Locked for analysts. As a ${esc(S.ROLES[S.currentUser().role].toLowerCase())} you can correct the name, detection time and reported time. Changes are recorded in the case history.</div></div>`
         : `<div class="field"><label for="cn">Case name<span class="req">*</span></label><input id="cn" maxlength="160" value="${esc(v.name)}" placeholder="e.g. Multiple failed logins on core banking admin portal"><div class="hint">The name, detection time and reported time can't be changed once the case is logged.</div></div>`}
       <div class="field-row">
         <div class="field"><label for="ce">Escalated team or user${coreReq('escalatedTo')}</label><input id="ce" list="esc-list" maxlength="120" value="${esc(v.escalatedTo)}"><datalist id="esc-list">${prevEsc.map((x) => `<option value="${esc(x)}">`).join('')}</datalist></div>
@@ -150,8 +152,8 @@ export function caseForm(c = null) {
         <div class="field"><label for="csrc">Source${coreReq('source')}</label><input id="csrc" list="src-list" maxlength="60" value="${esc(v.source)}"><datalist id="src-list">${SOURCE_SUGGESTIONS.map((x) => `<option value="${esc(x)}">`).join('')}</datalist></div>
       </div>
       <div class="field-row">
-        ${dtField('cd', 'Detection date and time', v.detectedAt, '<span class="req">*</span>', !!c)}
-        ${dtField('cr', 'Reported date and time', v.reportedAt, coreReq('reportedAt'), !!(c && c.reportedAt))}
+        ${dtField('cd', 'Detection date and time', v.detectedAt, '<span class="req">*</span>', !!c && !lead)}
+        ${dtField('cr', 'Reported date and time', v.reportedAt, coreReq('reportedAt'), !!(c && c.reportedAt) && !lead)}
         ${dtField('ca', 'Acknowledgement date and time', v.ackAt, coreReq('ackAt'))}
       </div>
       ${tpl?.fields?.length ? `<fieldset class="tf"><legend>${esc(tpl.name)} details</legend><div class="tf-grid">${tpl.fields.map((fd) => fieldInput(fd, v.fieldValues?.[fd.id])).join('')}</div></fieldset>` : ''}
@@ -210,8 +212,8 @@ export function caseForm(c = null) {
       const s = snapshot(f);
       const input = {
         id: c?.id, templateId: c ? undefined : (tpl?.id || null),
-        name: c ? c.name : s.name.trim(), escalatedTo: s.escalatedTo.trim(), severity: s.severity, source: s.source.trim(),
-        detectedAt: c ? c.detectedAt : s.detectedAt, reportedAt: c?.reportedAt ? c.reportedAt : s.reportedAt, ackAt: s.ackAt,
+        name: c && !lead ? c.name : s.name.trim(), escalatedTo: s.escalatedTo.trim(), severity: s.severity, source: s.source.trim(),
+        detectedAt: c && !lead ? c.detectedAt : s.detectedAt, reportedAt: c?.reportedAt && !lead ? c.reportedAt : s.reportedAt, ackAt: s.ackAt,
         slaManual: s.slaManual, slaBreach: s.slaManual ? s.slaBreach : S.computeSla(s),
         status: s.status, notes: s.notes.trim(), fieldValues: s.fieldValues,
       };
@@ -227,7 +229,7 @@ function fmtVal(v) {
   if (v === '' || v == null) return 'empty';
   if (typeof v === 'number' && v > 1e11) return fmt(v);
   if (typeof v === 'boolean') return v ? 'on' : 'off';
-  return String(v).length > 40 ? String(v).slice(0, 40) + '…' : String(v);
+  return String(v).length > 90 ? String(v).slice(0, 90) + '…' : String(v);
 }
 
 export function caseDetail(id) {
