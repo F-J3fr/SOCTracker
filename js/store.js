@@ -470,11 +470,21 @@ function validateCase(input) {
   if (miss.length) throw new Error(`This case type needs: ${miss.join(', ')}.`);
 }
 
+/** Fields that can't change once a case is logged. Reported time can be filled in once if it was left empty. */
+function checkCaseLocks(c, patch) {
+  const same = (a, b) => (a ?? '') === (b ?? '');
+  if (patch.name !== undefined && !same(patch.name, c.name)) throw new Error("The case name can't be changed after the case is logged.");
+  if (patch.detectedAt !== undefined && !same(patch.detectedAt, c.detectedAt)) throw new Error("The detection time can't be changed after the case is logged.");
+  if (patch.reportedAt !== undefined && c.reportedAt && !same(patch.reportedAt, c.reportedAt)) throw new Error("The reported time can't be changed once it's set.");
+}
+export const CASE_LOCKED = { name: 'always', detectedAt: 'always', reportedAt: 'once set' };
+
 export async function saveCase(input) {
   const me = session.me;
   if (input.id) {
     const res = await mutate('case', input.id, (c) => {
       if (!c) throw new ApiError('deleted');
+      checkCaseLocks(c, input);
       const merged = { ...c, ...input, template: c.template, fieldValues: { ...(c.fieldValues || {}), ...(input.fieldValues || {}) } };
       validateCase(merged);
       const changes = [];
@@ -518,6 +528,7 @@ export async function setCaseStatus(id, status, extra = {}) {
   const me = session.me;
   const res = await mutate('case', id, (c) => {
     if (!c) throw new ApiError('deleted');
+    checkCaseLocks(c, extra.patch || {});
     Object.assign(c, extra.patch || {});
     if (extra.fieldValues) c.fieldValues = { ...(c.fieldValues || {}), ...extra.fieldValues };
     if (status === 'Closed') {
@@ -599,10 +610,14 @@ export async function linkCaseToIncident(caseId, incidentId) {
   return inc;
 }
 
-const INC_FIELDS = { title: 'Title', severity: 'Severity', category: 'Category', ownerId: 'Owner', summary: 'Summary and impact', affectedAssets: 'Affected assets', rootCause: 'Root cause', lessonsLearned: 'Lessons learned', startedAt: 'Started' };
+const INC_FIELDS = { severity: 'Severity', category: 'Category', summary: 'Summary and impact', affectedAssets: 'Affected assets', rootCause: 'Root cause', lessonsLearned: 'Lessons learned' };
+const INC_LOCKED = { title: 'title', ownerId: 'owner', startedAt: 'start time' };
 export async function updateIncident(id, patch) {
   const res = await mutate('incident', id, (i) => {
     if (!i) throw new ApiError('deleted');
+    for (const [k, label] of Object.entries(INC_LOCKED)) {
+      if (patch[k] !== undefined && (patch[k] ?? '') !== (i[k] ?? '') && !(k === 'title' && patch[k].trim() === i.title)) throw new Error(`The incident ${label} can't be changed after the incident is declared.`);
+    }
     const changed = [];
     for (const [k, label] of Object.entries(INC_FIELDS)) {
       if (patch[k] !== undefined && patch[k] !== i[k]) { changed.push(label); i[k] = typeof patch[k] === 'string' ? patch[k].trim() : patch[k]; }
@@ -618,9 +633,12 @@ export async function updateIncident(id, patch) {
 
 const STATUS_STAMP = { Contained: 'containedAt', Eradicated: 'eradicatedAt', Recovered: 'recoveredAt', Closed: 'closedAt' };
 export async function setIncidentStatus(id, status, note = '', patch = {}) {
-  if (!INCIDENT_STATUSES.includes(status)) throw new Error('Pick a status.');
+  if (!INCIDENT_STATUSES.includes(status)) throw new Error('Pick a stage.');
+  const reason = (note || '').trim();
+  if (!reason) throw new Error('Write a note explaining why the stage is changing.');
   const res = await mutate('incident', id, (i) => {
     if (!i) throw new ApiError('deleted');
+    if (i.status === status) throw new Error(`The incident is already ${status.toLowerCase()}.`);
     Object.assign(i, patch);
     if (status === 'Closed') {
       const miss = [];
@@ -629,15 +647,17 @@ export async function setIncidentStatus(id, status, note = '', patch = {}) {
       if (miss.length) throw new Error(`Fill in before closing: ${miss.join(', ')}.`);
       i.closedBy = session.me.id;
     }
-    if (i.status === status && !note) return null;
     const from = i.status;
     i.status = status;
+    // moving back clears the times of the stages after the new one; the log keeps the full history
+    const order = INCIDENT_STATUSES.indexOf(status);
+    INCIDENT_STATUSES.forEach((st, n) => { if (n > order && STATUS_STAMP[st]) i[STATUS_STAMP[st]] = null; });
     if (STATUS_STAMP[status] && !i[STATUS_STAMP[status]]) i[STATUS_STAMP[status]] = Date.now();
-    if (status !== 'Closed') { i.closedAt = null; i.closedBy = null; }
-    i.log.push({ ...logEntry('status', `${from} → ${status}${note ? `: ${note.trim()}` : ''}`), to: status });
+    if (status !== 'Closed') i.closedBy = null;
+    i.log.push({ ...logEntry('status', `${from} → ${status}: ${reason}`), to: status, from, note: reason });
     return i;
   });
-  addAudit('incident.status', `${res.ref} is now ${status}`);
+  addAudit('incident.status', `${res.ref} moved to ${status}: ${reason}`);
   return res;
 }
 

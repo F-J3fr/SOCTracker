@@ -7,6 +7,28 @@ export const incFilters = { q: '', status: 'active', severity: '', category: '' 
 const STATUS_CLASS = { Open: 'inc-open', Contained: 'inc-contained', Eradicated: 'inc-contained', Recovered: 'inc-recovered', Closed: 'Closed' };
 export const incStatus = (s) => `<span class="status status-${STATUS_CLASS[s] || 'inc-open'}">${esc(s)}</span>`;
 
+/** Stage dropdown used on the incident and on every case escalated to it. */
+export function stageControl(i, idPrefix = 'stg') {
+  return `<div class="stage-ctl">
+    <label for="${idPrefix}-sel">Incident stage</label>
+    <div class="with-now">
+      <select id="${idPrefix}-sel">${S.INCIDENT_STATUSES.map((s) => `<option ${s === i.status ? 'selected' : ''}>${s}</option>`).join('')}</select>
+      <button type="button" class="sm primary" id="${idPrefix}-go" disabled>Change stage</button>
+    </div>
+    <div class="hint">Every change needs a note explaining why.</div>
+  </div>`;
+}
+export function bindStageControl(root, i, idPrefix = 'stg', after = () => incidentDetail(i.id)) {
+  const sel = root.querySelector(`#${idPrefix}-sel`);
+  const go = root.querySelector(`#${idPrefix}-go`);
+  if (!sel || !go) return;
+  sel.addEventListener('change', () => { go.disabled = sel.value === i.status; });
+  go.addEventListener('click', () => statusForm(i, sel.value, after));
+}
+export function lastStageChange(i) {
+  return [...i.log].filter((e) => e.kind === 'status').sort((a, b) => b.at - a.at)[0] || null;
+}
+
 export function viewIncidents(el) {
   el.innerHTML = `
     <div class="toolbar" data-live>
@@ -65,15 +87,17 @@ export function incidentForm(inc = null, fromCase = null) {
     title: inc ? `Edit ${esc(inc.ref)}` : fromCase ? `Declare incident from ${esc(fromCase.ref)}` : 'Declare incident',
     width: '760px',
     body: `
-      <div class="field"><label for="it">Incident title<span class="req">*</span></label><input id="it" maxlength="160" value="${esc(v.title)}"></div>
+      ${inc ? `<div class="field"><label for="it">Incident title <span class="lock">locked</span></label><input id="it" value="${esc(v.title)}" disabled></div>`
+        : `<div class="field"><label for="it">Incident title<span class="req">*</span></label><input id="it" maxlength="160" value="${esc(v.title)}"><div class="hint">The title, owner and start time can't be changed once the incident is declared.</div></div>`}
       <div class="field-row">
         <div class="field"><label for="isv">Severity<span class="req">*</span></label><select id="isv">${S.SEVERITIES.map((s) => `<option ${s === v.severity ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
         <div class="field"><label for="ict">Category</label><select id="ict">${S.INCIDENT_CATEGORIES.map((s) => `<option ${s === v.category ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
-        <div class="field"><label for="io">Owner</label><select id="io">${ownerOptions(v.ownerId)}</select></div>
+        <div class="field"><label for="io">Owner${inc ? ' <span class="lock">locked</span>' : ''}</label><select id="io" ${inc ? 'disabled' : ''}>${ownerOptions(v.ownerId)}</select></div>
       </div>
       <div class="field-row">
-        <div class="field"><label for="ist">Incident start</label><div class="with-now"><input type="datetime-local" id="ist" value="${toInput(v.startedAt)}"><button type="button" class="sm" data-now="ist">Now</button></div>
-          <div class="hint">When the activity began. Defaults to the case's detection time.</div></div>
+        ${inc ? `<div class="field"><label for="ist">Incident start <span class="lock">locked</span></label><input type="datetime-local" id="ist" value="${toInput(v.startedAt)}" disabled></div>`
+          : `<div class="field"><label for="ist">Incident start</label><div class="with-now"><input type="datetime-local" id="ist" value="${toInput(v.startedAt)}"><button type="button" class="sm" data-now="ist">Now</button></div>
+          <div class="hint">When the activity began. Defaults to the case's detection time.</div></div>`}
       </div>
       <div class="field"><label for="isum">Summary and impact</label><textarea id="isum" maxlength="8000" placeholder="What happened, who and what is affected">${esc(v.summary)}</textarea></div>
       <div class="field"><label for="ias">Affected assets</label><textarea id="ias" maxlength="4000" style="min-height:64px" placeholder="Hosts, accounts, applications">${esc(v.affectedAssets)}</textarea></div>
@@ -87,7 +111,7 @@ export function incidentForm(inc = null, fromCase = null) {
       const g = (id) => f.querySelector('#' + id)?.value;
       const data = { title: g('it'), severity: g('isv'), category: g('ict'), ownerId: g('io'), startedAt: fromInput(g('ist')) || Date.now(), summary: g('isum'), affectedAssets: g('ias') };
       if (inc) {
-        await S.updateIncident(inc.id, { ...data, rootCause: g('irc'), lessonsLearned: g('ill') });
+        await S.updateIncident(inc.id, { severity: data.severity, category: data.category, summary: data.summary, affectedAssets: data.affectedAssets, rootCause: g('irc'), lessonsLearned: g('ill') });
         toast(`${inc.ref} saved.`);
         setTimeout(() => incidentDetail(inc.id), 0);
       } else {
@@ -105,13 +129,13 @@ export function incidentDetail(id) {
   const cases = i.caseIds.map((cid) => S.data().cases.find((c) => c.id === cid)).filter(Boolean);
   const stages = S.INCIDENT_STATUSES;
   const idx = stages.indexOf(i.status);
-  const next = stages[idx + 1];
   openModal({
     title: esc(i.ref),
     width: '820px',
     body: `
       <h2 style="margin-bottom:12px">${esc(i.title)}</h2>
       <ol class="stages" aria-label="Incident lifecycle">${stages.map((s, n) => `<li class="${n < idx ? 'done' : n === idx ? 'now' : ''}">${s}</li>`).join('')}</ol>
+      ${stageControl(i, 'istg')}
       <dl class="kv">
         <dt>Severity</dt><dd><span class="sev sev-${i.severity}">${i.severity}</span></dd>
         <dt>Category</dt><dd>${esc(i.category)}</dd>
@@ -131,14 +155,12 @@ export function incidentDetail(id) {
       <button type="button" class="sm" id="add-log">Add to log</button>`,
     foot: `${S.can.deleteIncidents() ? '<button type="button" class="danger left" id="idel">Delete</button>' : ''}
       <button type="button" id="iedit">Edit</button>
-      ${i.status === 'Closed' ? '<button type="button" id="ireopen">Reopen</button>' : ''}
-      ${next ? `<button type="button" class="primary" id="inext">Mark ${next.toLowerCase()}</button>` : ''}`,
+`,
     onMount: (f) => {
       f.querySelectorAll('[data-case]').forEach((b) => (b.onclick = () => caseDetail(b.dataset.case)));
       f.querySelector('#add-log').onclick = async () => { if (await guard(() => S.addIncidentLog(id, f.querySelector('#ilog').value), 'Added to the log.')) incidentDetail(id); };
       f.querySelector('#iedit').onclick = () => incidentForm(i);
-      f.querySelector('#inext')?.addEventListener('click', () => statusForm(i, next));
-      f.querySelector('#ireopen')?.addEventListener('click', () => statusForm(i, 'Open'));
+      bindStageControl(f, i, 'istg');
       f.querySelector('#idel')?.addEventListener('click', async () => {
         if (!confirm(`Delete ${i.ref}? Linked cases stay, but lose the link. The deletion is kept in the audit log.`)) return;
         if (await guard(() => S.deleteIncident(id), 'Incident deleted.')) closeModal();
@@ -147,23 +169,29 @@ export function incidentDetail(id) {
   });
 }
 
-function statusForm(i, status) {
+function statusForm(i, status, after = () => incidentDetail(i.id)) {
   const closing = status === 'Closed';
+  const back = S.INCIDENT_STATUSES.indexOf(status) < S.INCIDENT_STATUSES.indexOf(i.status);
   openModal({
-    title: `${esc(i.ref)}: ${closing ? 'close incident' : `mark ${status.toLowerCase()}`}`,
+    title: `${esc(i.ref)}: ${esc(i.status)} to ${esc(status)}`,
     body: `
-      ${closing ? `<p class="small muted">Closing needs a summary and the root cause. Lessons learned are optional.</p>
+      ${back ? `<p class="small" style="color:var(--sev-medium)">This moves the incident back a stage. The times recorded for later stages are cleared, and the log keeps the full history.</p>` : ''}
+      <div class="field"><label for="snote">Reason for the change<span class="req">*</span></label>
+        <textarea id="snote" placeholder="${status === 'Contained' ? 'e.g. Host isolated in EDR and the account disabled at 14:20' : status === 'Eradicated' ? 'e.g. Malware removed, persistence keys deleted, IOC sweep clean' : status === 'Recovered' ? 'e.g. Host reimaged and back in production, monitoring for 48 hours' : status === 'Closed' ? 'e.g. No further activity after 48 hours of monitoring' : 'e.g. New activity seen from the same source'}"></textarea>
+        <div class="hint">Saved to the incident log with your name and the time.</div></div>
+      ${closing ? `<p class="small muted">Closing also needs a summary and the root cause. Lessons learned are optional.</p>
         <div class="field"><label for="ssum">Summary and impact<span class="req">*</span></label><textarea id="ssum">${esc(i.summary)}</textarea></div>
         <div class="field"><label for="src">Root cause<span class="req">*</span></label><textarea id="src">${esc(i.rootCause)}</textarea></div>
         <div class="field"><label for="sll">Lessons learned</label><textarea id="sll">${esc(i.lessonsLearned)}</textarea></div>` : ''}
-      <div class="field"><label for="snote">Note for the log${closing ? '' : ' (optional)'}</label><textarea id="snote" placeholder="${status === 'Contained' ? 'e.g. Host isolated, account disabled' : 'What changed'}"></textarea></div>
       <p class="error"></p>`,
-    foot: `<button type="button" data-close>Cancel</button><button class="primary" type="submit">${closing ? 'Close incident' : `Mark ${status.toLowerCase()}`}</button>`,
+    foot: `<button type="button" data-close>Cancel</button><button class="primary" type="submit">Move to ${esc(status.toLowerCase())}</button>`,
     onSubmit: async (f) => {
+      const note = f.querySelector('#snote').value.trim();
+      if (!note) throw new Error('Write a note explaining why the stage is changing.');
       const patch = closing ? { summary: f.querySelector('#ssum').value.trim(), rootCause: f.querySelector('#src').value.trim(), lessonsLearned: f.querySelector('#sll').value.trim() } : {};
-      await S.setIncidentStatus(i.id, status, f.querySelector('#snote').value, patch);
-      toast(`${i.ref} is now ${status.toLowerCase()}.`);
-      setTimeout(() => incidentDetail(i.id), 0);
+      await S.setIncidentStatus(i.id, status, note, patch);
+      toast(`${i.ref} moved to ${status.toLowerCase()}.`);
+      setTimeout(after, 0);
     },
   });
 }

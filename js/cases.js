@@ -1,7 +1,7 @@
 // Case tracker: list, form (with case templates), detail, closing, escalation to incident.
 import * as S from './store.js';
 import { esc, fmt, toInput, fromInput, dur, SEV_RANK, toast, guard, openModal, closeModal, refresh, fieldInput, readFields, fieldDisplay, requiredMark } from './ui.js';
-import { incidentForm, incidentDetail } from './incidents.js';
+import { incidentForm, incidentDetail, incStatus, stageControl, bindStageControl, lastStageChange } from './incidents.js';
 
 const ESCALATION_SUGGESTIONS = ['IT Infrastructure', 'Network Team', 'Fraud Team', 'Application Support', 'IAM Team', 'Service Desk', 'Third-party vendor'];
 const SOURCE_SUGGESTIONS = ['SIEM', 'EDR', 'Email gateway', 'Firewall / IPS', 'User report', 'Threat intel', 'Fraud monitoring', 'Vulnerability scan'];
@@ -125,7 +125,8 @@ export function confirmClose(id) {
 
 // ---------------------------------------------------------------- form
 
-function dtField(id, label, ts, req = '') {
+function dtField(id, label, ts, req = '', locked = false) {
+  if (locked) return `<div class="field"><label for="${id}">${label} <span class="lock">locked</span></label><input type="datetime-local" id="${id}" value="${toInput(ts)}" disabled></div>`;
   return `<div class="field"><label for="${id}">${label}${req}</label><div class="with-now"><input type="datetime-local" id="${id}" value="${toInput(ts)}"><button type="button" class="sm" data-now="${id}">Now</button></div></div>`;
 }
 
@@ -141,15 +142,16 @@ export function caseForm(c = null) {
       ${c ? (tpl ? `<p class="small muted">Case type: <b>${esc(tpl.name)}</b></p>` : '')
         : `<div class="field"><label for="ctype">Case type</label><select id="ctype"><option value="">No template</option>${activeTpls.map((t) => `<option value="${t.id}" ${tpl?.id === t.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select>
           ${activeTpls.length ? '<div class="hint">Picking a type adds its fields and marks what must be filled in.</div>' : (S.can.manageTemplates() ? '<div class="hint">No case types yet. Create them under Case templates.</div>' : '')}</div>`}
-      <div class="field"><label for="cn">Case name<span class="req">*</span></label><input id="cn" maxlength="160" value="${esc(v.name)}" placeholder="e.g. Multiple failed logins on core banking admin portal"></div>
+      ${c ? `<div class="field"><label for="cn">Case name <span class="lock">locked</span></label><input id="cn" value="${esc(v.name)}" disabled></div>`
+        : `<div class="field"><label for="cn">Case name<span class="req">*</span></label><input id="cn" maxlength="160" value="${esc(v.name)}" placeholder="e.g. Multiple failed logins on core banking admin portal"><div class="hint">The name, detection time and reported time can't be changed once the case is logged.</div></div>`}
       <div class="field-row">
         <div class="field"><label for="ce">Escalated team or user${coreReq('escalatedTo')}</label><input id="ce" list="esc-list" maxlength="120" value="${esc(v.escalatedTo)}"><datalist id="esc-list">${prevEsc.map((x) => `<option value="${esc(x)}">`).join('')}</datalist></div>
         <div class="field"><label for="cv">Severity<span class="req">*</span></label><select id="cv">${S.SEVERITIES.map((s) => `<option ${s === v.severity ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
         <div class="field"><label for="csrc">Source${coreReq('source')}</label><input id="csrc" list="src-list" maxlength="60" value="${esc(v.source)}"><datalist id="src-list">${SOURCE_SUGGESTIONS.map((x) => `<option value="${esc(x)}">`).join('')}</datalist></div>
       </div>
       <div class="field-row">
-        ${dtField('cd', 'Detection date and time', v.detectedAt, '<span class="req">*</span>')}
-        ${dtField('cr', 'Reported date and time', v.reportedAt, coreReq('reportedAt'))}
+        ${dtField('cd', 'Detection date and time', v.detectedAt, '<span class="req">*</span>', !!c)}
+        ${dtField('cr', 'Reported date and time', v.reportedAt, coreReq('reportedAt'), !!(c && c.reportedAt))}
         ${dtField('ca', 'Acknowledgement date and time', v.ackAt, coreReq('ackAt'))}
       </div>
       ${tpl?.fields?.length ? `<fieldset class="tf"><legend>${esc(tpl.name)} details</legend><div class="tf-grid">${tpl.fields.map((fd) => fieldInput(fd, v.fieldValues?.[fd.id])).join('')}</div></fieldset>` : ''}
@@ -208,8 +210,8 @@ export function caseForm(c = null) {
       const s = snapshot(f);
       const input = {
         id: c?.id, templateId: c ? undefined : (tpl?.id || null),
-        name: s.name.trim(), escalatedTo: s.escalatedTo.trim(), severity: s.severity, source: s.source.trim(),
-        detectedAt: s.detectedAt, reportedAt: s.reportedAt, ackAt: s.ackAt,
+        name: c ? c.name : s.name.trim(), escalatedTo: s.escalatedTo.trim(), severity: s.severity, source: s.source.trim(),
+        detectedAt: c ? c.detectedAt : s.detectedAt, reportedAt: c?.reportedAt ? c.reportedAt : s.reportedAt, ackAt: s.ackAt,
         slaManual: s.slaManual, slaBreach: s.slaManual ? s.slaBreach : S.computeSla(s),
         status: s.status, notes: s.notes.trim(), fieldValues: s.fieldValues,
       };
@@ -243,7 +245,14 @@ export function caseDetail(id) {
     width: '780px',
     body: `
       <h2 style="margin-bottom:10px">${esc(c.name)}</h2>
-      ${inc ? `<div class="inc-banner">Escalated to incident <button type="button" class="linkish" data-incident="${inc.id}">${esc(inc.ref)} ${esc(inc.title)}</button> <span class="status status-inc">${esc(inc.status)}</span></div>` : ''}
+      ${inc ? (() => {
+        const last = lastStageChange(inc);
+        return `<div class="inc-banner">
+          <div class="inc-banner-head">Escalated to incident <button type="button" class="linkish" data-incident="${inc.id}">${esc(inc.ref)} ${esc(inc.title)}</button> ${incStatus(inc.status)}</div>
+          ${stageControl(inc, 'cstg')}
+          ${last ? `<div class="small muted">Last stage change: ${esc(last.from || '')}${last.from ? ' to ' : ''}${esc(last.to)} by ${esc(S.userName(last.by))}, ${fmt(last.at)}${last.note ? `. Reason: ${esc(last.note)}` : ''}</div>` : ''}
+        </div>`;
+      })() : ''}
       <dl class="kv">
         ${c.template ? `<dt>Case type</dt><dd>${esc(c.template.name)}</dd>` : ''}
         <dt>Status</dt><dd><span class="status status-${c.status}">${c.status}</span>${c.closedBy ? ` <span class="small muted">by ${esc(S.userName(c.closedBy))} at ${fmt(c.closedAt)}</span>` : ''}</dd>
@@ -268,6 +277,7 @@ export function caseDetail(id) {
       ${c.status === 'Closed' ? '<button type="button" id="reopen">Reopen</button>' : '<button type="button" class="primary" id="close">Close case</button>'}`,
     onMount: (f) => {
       f.querySelectorAll('[data-incident]').forEach((b) => (b.onclick = () => incidentDetail(b.dataset.incident)));
+      if (inc) bindStageControl(f, inc, 'cstg', () => caseDetail(id));
       f.querySelector('#add-cmt').onclick = async () => {
         if (await guard(() => S.addCaseComment(id, f.querySelector('#cmt').value), 'Comment added.')) caseDetail(id);
       };

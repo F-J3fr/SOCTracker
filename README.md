@@ -33,6 +33,14 @@ Analysts pick the type when logging a case, and the form enforces it. Closing a 
 
 Closing an incident requires a summary and root cause. Linked cases show the incident badge everywhere.
 
+**Incident stage from the case.** Every case escalated to an incident has an **Incident stage** dropdown, as does the incident itself. Analysts can move the incident to any stage, including back to an earlier one. **Every change requires a written reason.** It's saved to the incident log and the audit log with the person's name and time, and the case shows the latest change and its reason.
+
+**Locked after submission.** These can't be edited once saved:
+- **Cases:** the case name and detection time; the reported time once it's been filled in.
+- **Incidents:** the title, owner and start time.
+
+The edit forms show them as locked, and the data layer refuses changes to them.
+
 **Search history.** Search all cases and incidents by:
 - **Keyword:** names, notes, comments, incident logs and case-type fields.
 - **Person and role:** opened, closed, commented or edited, escalated to them, incident owner, declared the incident.

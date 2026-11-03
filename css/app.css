@@ -288,6 +288,8 @@ dialog[open] { animation: rise .16s ease-out; }
 .tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--orange); }
 
 /* ---------- v2: templates, incidents, search, sync ---------- */
+.lock { font-size: 11px; font-weight: 600; color: var(--faint); margin-left: 6px; }
+input:disabled, select:disabled { opacity: .7; cursor: not-allowed; }
 .req { color: var(--orange-hi); margin-left: 2px; }
 .req-close { font-size: 11px; font-weight: 600; color: var(--sev-medium); margin-left: 6px; }
 fieldset.tf { border: 1px solid var(--line); border-radius: var(--r-md); padding: 12px 14px 2px; margin: 4px 0 14px; }
@@ -301,6 +303,10 @@ fieldset.tf legend { padding: 0 6px; font-family: var(--display); font-weight: 6
 .core-grid label { margin: 0; color: var(--text); font-weight: 500; font-size: 13.5px; }
 .inc-badge { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 3px; background: rgba(255,61,87,.14); color: #ff8b9a; border: 1px solid rgba(255,61,87,.35); margin-left: 4px; }
 .inc-badge:hover { background: rgba(255,61,87,.24); }
+.stage-ctl { margin: 4px 0 2px; max-width: 420px; }
+.stage-ctl label { margin-bottom: 4px; }
+.inc-banner { flex-direction: column; align-items: stretch !important; }
+.inc-banner-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .inc-banner { border: 1px solid rgba(255,61,87,.35); background: rgba(255,61,87,.08); border-radius: var(--r-md); padding: 10px 12px; margin-bottom: 14px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 button.linkish { background: none; border: 0; padding: 0; color: var(--orange-hi); text-decoration: underline; font-weight: 600; }
 .status-inc-open { background: rgba(255,61,87,.12); color: #ff8b9a; border: 1px solid rgba(255,61,87,.35); }
