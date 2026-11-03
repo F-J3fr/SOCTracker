@@ -19,7 +19,7 @@ The project URL and publishable key are in `js/config.js`. The publishable key i
 
 **Case tracker.** Case name, escalated team or user, severity, detection, reported and acknowledgement date and time, SLA breach (Y/N), and status, which stays WIP until closed. Any analyst can close another analyst's case. SLA breach is calculated from per-severity targets and can be overridden. Each case has comments and a full change history.
 
-**Case templates (case types).** Team leads and admins build case types in the app. Each type has:
+**Case templates (case types).** Anyone can build case types in the app. Analysts can edit the ones they created; team leads and admins can edit, archive or delete any of them. Each type has:
 - **Its own fields:** short text, long text, number, date and time, pick from a list, yes or no, or team member.
 - **A rule for each field:** optional, required to save, or required to close.
 - **Mandated standard fields:** it can also require some of the standard fields (escalated to, reported time, acknowledgement time, source, notes).
@@ -67,7 +67,8 @@ Results export to CSV, including the chosen case type's fields as columns.
 | Declare and update incidents; write handovers; search; download reports | ✓ | ✓ | ✓ |
 | Delete cases and incidents; post notices; edit the schedule and settings | | ✓ | ✓ |
 | Correct locked fields (case name and times, incident title, owner and start) | | ✓ | ✓ |
-| Build case templates; view the audit log | | ✓ | ✓ |
+| Create case templates and edit your own | ✓ | ✓ | ✓ |
+| Edit, archive or delete anyone's case templates; view the audit log | | ✓ | ✓ |
 | Create, reset and disable analyst and team lead accounts | | ✓ | ✓ |
 | Create, reset and disable admin accounts | | | ✓ |
 

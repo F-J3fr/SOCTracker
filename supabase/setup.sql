@@ -378,7 +378,7 @@ begin
   if p_kind not in ('case', 'incident', 'handover', 'notice', 'template', 'schedule', 'settings') then
     raise exception 'bad_kind';
   end if;
-  if p_kind in ('notice', 'template', 'schedule', 'settings') and a.role = 'analyst' then
+  if p_kind in ('notice', 'schedule', 'settings') and a.role = 'analyst' then
     raise exception 'forbidden';
   end if;
   if length(p_enc::text) > 1000000 then raise exception 'too_large'; end if;
@@ -387,6 +387,8 @@ begin
     if r.kind <> p_kind then raise exception 'forbidden'; end if;
     if r.deleted then raise exception 'deleted'; end if;
     if r.version <> p_expected then raise exception 'conflict'; end if;
+    -- analysts can create case templates but only edit the ones they created
+    if r.kind = 'template' and a.role = 'analyst' and r.created_by <> a.id then raise exception 'forbidden'; end if;
     update soc.records set enc = p_enc, version = version + 1, updated_by = a.id, updated_at = clock_timestamp()
     where id = p_id
     returning * into r;

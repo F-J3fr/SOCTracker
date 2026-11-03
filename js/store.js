@@ -220,6 +220,7 @@ function putLocal(kind, id, obj, mm) {
   if (kind === 'handover') obj.author = mm.createdBy;
   if (kind === 'incident') obj.declaredBy = mm.createdBy;
   if (kind === 'notice') obj.author = mm.createdBy;
+  if (kind === 'template') obj.createdBy = mm.createdBy;
   if (kind === 'settings') { store.settings = { ...structuredClone(DEFAULT_SETTINGS), ...obj }; return; }
   if (kind === 'schedule') { store.schedule.months[obj.monthKey] = obj; return; }
   const arr = store[COLL[kind]];
@@ -291,7 +292,9 @@ export const can = {
   editSettings: () => isLead(),
   deleteCases: () => isLead(),
   deleteIncidents: () => isLead(),
-  manageTemplates: () => isLead(),
+  manageTemplates: () => !!session.me,
+  editTemplate: (t) => !!t && (isLead() || t.createdBy === session.me?.id),
+  deleteTemplates: () => isLead(),
   manageTarget: (target) => !!session.me && !!target && (session.me.role === 'admin' || (session.me.role === 'teamlead' && target.role !== 'admin')),
   assignRole: (role) => !!session.me && (session.me.role === 'admin' || (session.me.role === 'teamlead' && role !== 'admin')),
 };
@@ -423,6 +426,7 @@ export function missingRequired(c, closing) {
 
 export async function saveTemplate(t) {
   if (!can.manageTemplates()) throw new ApiError('forbidden');
+  if (t.id && !can.editTemplate(store.templates.find((x) => x.id === t.id))) throw new Error('Only the person who created this case type, a team lead or an admin can change it.');
   const name = (t.name || '').trim();
   if (!name) throw new Error('Give the template a name.');
   if (store.templates.some((x) => x.id !== t.id && x.name.toLowerCase() === name.toLowerCase())) throw new Error('Another template already has that name.');
@@ -445,6 +449,7 @@ export async function saveTemplate(t) {
   return id;
 }
 export async function deleteTemplate(id) {
+  if (!can.deleteTemplates()) throw new Error('Only team leads and admins can delete case types.');
   const t = store.templates.find((x) => x.id === id);
   await remove(id);
   addAudit('template.delete', `Deleted case template "${t?.name}"`);

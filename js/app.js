@@ -106,12 +106,12 @@ function shell(active, title) {
         ${item('cases', 'Case tracker', open, false)}
         ${item('incidents', 'Incidents', activeInc, activeInc > 0)}
         ${item('search', 'Search history')}
+        ${item('templates', 'Case templates')}
         ${item('handover', 'Shift handover', unreadHand, unreadHand > 0)}
         ${item('notices', 'Notices', unackd, unackd > 0)}
         ${item('schedule', 'Shift schedule')}
         ${item('reports', 'Daily report')}
-        ${S.can.manageTemplates() ? '<div class="nav-sep"></div>' + item('templates', 'Case templates') : ''}
-        ${S.can.manageUsers() ? item('users', 'Users') : ''}
+        ${S.can.manageUsers() ? '<div class="nav-sep"></div>' + item('users', 'Users') : ''}
         ${S.can.viewAudit() ? item('audit', 'Audit log') : ''}
         ${S.can.editSettings() ? item('settings', 'Settings') : ''}
       </nav>

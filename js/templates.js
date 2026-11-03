@@ -7,18 +7,18 @@ export function viewTemplates(el) {
   const tpls = [...S.data().templates].sort((a, b) => (a.active === false) - (b.active === false) || a.name.localeCompare(b.name));
   const used = (id) => S.data().cases.filter((c) => c.templateId === id).length;
   el.innerHTML = `
-    <div class="toolbar"><div class="grow muted small">Case types decide which extra fields an analyst fills in, and which fields are required to save or to close the case. Changes apply to new cases. Existing cases keep the fields they were created with.</div>
+    <div class="toolbar"><div class="grow muted small">Case types decide which extra fields an analyst fills in, and which fields are required to save or to close the case. Anyone can create one. You can edit the ones you created; team leads and admins can edit, archive or delete any. Changes apply to new cases only.</div>
       <button class="primary" id="new-t">New case type</button></div>
     ${tpls.length ? `<div class="table-wrap"><table>
-      <thead><tr><th>Case type</th><th>Default severity</th><th>Fields</th><th>Required</th><th>Cases</th><th>Status</th><th></th></tr></thead>
+      <thead><tr><th>Case type</th><th>Default severity</th><th>Fields</th><th>Required</th><th>Cases</th><th>Created by</th><th>Status</th><th></th></tr></thead>
       <tbody>${tpls.map((t) => {
         const req = (t.fields || []).filter((f) => f.required !== 'no').length + Object.values(t.core || {}).filter((m) => m !== 'no').length;
         return `<tr>
           <td><b>${esc(t.name)}</b>${t.description ? `<div class="small muted">${esc(t.description)}</div>` : ''}</td>
           <td><span class="sev sev-${t.defaultSeverity}">${esc(t.defaultSeverity)}</span></td>
-          <td class="t">${(t.fields || []).length}</td><td class="t">${req}</td><td class="t">${used(t.id)}</td>
+          <td class="t">${(t.fields || []).length}</td><td class="t">${req}</td><td class="t">${used(t.id)}</td><td class="small">${esc(S.userName(t.createdBy))}</td>
           <td>${t.active === false ? '<span class="tag off">Archived</span>' : '<span class="small muted">Active</span>'}</td>
-          <td class="actions"><button class="sm" data-tedit="${t.id}">Edit</button><button class="sm ghost" data-tcopy="${t.id}">Duplicate</button>
+          <td class="actions">${S.can.editTemplate(t) ? `<button class="sm" data-tedit="${t.id}">Edit</button>` : ''}<button class="sm ghost" data-tcopy="${t.id}">Duplicate</button>
             <button class="sm ghost" data-tprev="${t.id}">Preview</button></td></tr>`;
       }).join('')}</tbody></table></div>`
     : `<div class="panel empty"><b>No case types yet.</b> Create one for each kind of case your team handles, such as Phishing, Malware alert or Account lockout, with the details analysts must record for it.
@@ -107,7 +107,7 @@ export function templateEditor(t = null) {
     <h3 style="margin:18px 0 6px">Extra fields for this type</h3>
     <div id="rows">${draft.fields.map(fieldRow).join('') || '<p class="small muted">No extra fields yet.</p>'}</div>
     <button type="button" class="sm" id="addf">Add field</button>
-    ${t?.id ? `<div class="field" style="margin-top:18px"><label class="check"><input type="checkbox" id="tact" ${draft.active !== false ? 'checked' : ''}> Active (offered when logging new cases)</label></div>` : ''}
+    ${t?.id && S.can.deleteTemplates() ? `<div class="field" style="margin-top:18px"><label class="check"><input type="checkbox" id="tact" ${draft.active !== false ? 'checked' : ''}> Active (offered when logging new cases)</label></div>` : ''}
     <p class="error"></p>`;
 
   const collect = (f) => {
@@ -136,7 +136,7 @@ export function templateEditor(t = null) {
     title: t?.id ? `Edit ${esc(t.name)}` : 'New case type',
     width: '860px',
     body: body(),
-    foot: `${t?.id ? '<button type="button" class="danger left" id="tdel">Delete</button>' : ''}<button type="button" data-close>Cancel</button><button class="primary" type="submit">${t?.id ? 'Save case type' : 'Create case type'}</button>`,
+    foot: `${t?.id && S.can.deleteTemplates() ? '<button type="button" class="danger left" id="tdel">Delete</button>' : ''}<button type="button" data-close>Cancel</button><button class="primary" type="submit">${t?.id ? 'Save case type' : 'Create case type'}</button>`,
     onMount: (f) => {
       mount(f);
       f.querySelector('#tdel')?.addEventListener('click', async () => {

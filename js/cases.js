@@ -142,7 +142,7 @@ export function caseForm(c = null) {
   const body = () => `
       ${c ? (tpl ? `<p class="small muted">Case type: <b>${esc(tpl.name)}</b></p>` : '')
         : `<div class="field"><label for="ctype">Case type</label><select id="ctype"><option value="">No template</option>${activeTpls.map((t) => `<option value="${t.id}" ${tpl?.id === t.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select>
-          ${activeTpls.length ? '<div class="hint">Picking a type adds its fields and marks what must be filled in.</div>' : (S.can.manageTemplates() ? '<div class="hint">No case types yet. Create them under Case templates.</div>' : '')}</div>`}
+          ${activeTpls.length ? '<div class="hint">Picking a type adds its fields and marks what must be filled in.</div>' : '<div class="hint">No case types yet. Anyone can create them under Case templates.</div>'}</div>`}
       ${c && !lead ? `<div class="field"><label for="cn">Case name <span class="lock">locked</span></label><input id="cn" value="${esc(v.name)}" disabled></div>`
         : c ? `<div class="field"><label for="cn">Case name<span class="req">*</span></label><input id="cn" maxlength="160" value="${esc(v.name)}"><div class="hint">Locked for analysts. As a ${esc(S.ROLES[S.currentUser().role].toLowerCase())} you can correct the name, detection time and reported time. Changes are recorded in the case history.</div></div>`
         : `<div class="field"><label for="cn">Case name<span class="req">*</span></label><input id="cn" maxlength="160" value="${esc(v.name)}" placeholder="e.g. Multiple failed logins on core banking admin portal"><div class="hint">The name, detection time and reported time can't be changed once the case is logged.</div></div>`}
